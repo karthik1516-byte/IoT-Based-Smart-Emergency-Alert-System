@@ -1,0 +1,163 @@
+#include <SPI.h>
+#include <LoRa.h>
+
+// LoRa pins
+#define SS 5
+#define RST 14
+#define DIO0 2
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Adafruit_Sensor.h>
+#include "MAX30105.h"
+#include "heartRate.h"
+
+#include "DHT.h"
+
+#define DHTPIN 4        // GPIO pin where sensor is connected
+#define DHTTYPE DHT11   // Change to DHT11 if you use DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+MAX30105 particleSensor;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+// HR + SpO2
+const byte RATE_SIZE = 4;
+byte rates[RATE_SIZE];
+byte rateSpot = 0;
+long lastBeat = 0;
+float beatsPerMinute;
+int beatAvg;
+int spo2;
+
+int Switch = 15;
+int result;
+int ambulance = 1;
+
+String data;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(Switch, INPUT_PULLUP);
+ dht.begin();
+ lcd.init();
+  lcd.backlight();
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+
+    while (1)
+      ;
+  }
+
+  particleSensor.setup();
+  particleSensor.setPulseAmplitudeRed(0x3F);
+  particleSensor.setPulseAmplitudeIR(0x3F);
+
+   while (!Serial);
+
+  Serial.println("LoRa Transmitter");
+
+  LoRa.setPins(SS, RST, DIO0);
+
+  if (!LoRa.begin(433E6)) {   // Change to your frequency
+    Serial.println("Starting LoRa failed!");
+    while (1);
+  }
+}
+
+void loop() {
+ int temperature = dht.readTemperature(true);    // Read Fahrenheit   
+  Serial.print("Temperature: ");
+  Serial.println(temperature);
+
+
+result = digitalRead(Switch);
+  Serial.print("Switch: ");
+  Serial.println(result);
+
+
+  long irValue = particleSensor.getIR();
+
+
+  if (irValue < 5000) {
+    lcd.setCursor(0, 0);
+    lcd.print("SpO2:0");
+    lcd.print(" HR:0");
+  lcd.setCursor(0, 1);
+  lcd.print("Temperature:");
+  lcd.print(spo2);
+  lcd.write(char(223));
+  lcd.print("F");
+ 
+    beatAvg = 0;
+    spo2 = 0;
+
+    
+  }
+
+
+  // Heartbeat detect
+  if (irValue > 5000 || checkForBeat(irValue)) {
+    long now = millis();
+    beatsPerMinute = 60.0 / ((now - lastBeat) / 1000.0);
+    lastBeat = now;
+
+    if (beatsPerMinute > 30 && beatsPerMinute < 180) {
+      rates[rateSpot++] = (byte)beatsPerMinute;
+      rateSpot %= RATE_SIZE;
+
+      beatAvg = 0;
+      for (byte x = 0; x < RATE_SIZE; x++)
+        beatAvg += rates[x];
+      beatAvg /= RATE_SIZE;
+    }
+      // SpO2 (Approx Mapping)
+  spo2 = map(irValue, 50000, 200000, 85, 100);
+  spo2 = constrain(spo2, 85, 100);
+  beatAvg = spo2 -10;
+  }
+  
+  Serial.print("IR=");
+  Serial.print(irValue);
+
+  Serial.print(" SpO2=");
+  Serial.print(spo2);
+  Serial.print(" HR=");
+  Serial.println(beatAvg);
+
+
+  lcd.setCursor(0, 0);
+  lcd.print("SpO2:");
+  lcd.print(spo2);
+  lcd.print(" HR:");
+  lcd.print(beatAvg);
+  lcd.setCursor(0, 1);
+  lcd.print("Temperature:");
+  lcd.print(temperature);
+  lcd.write(char(223));
+  lcd.print("F");
+ data = String(ambulance) + "," + String(temperature) + "," + String(result) + "," + String(spo2) + "," + String(beatAvg);
+  Serial.println(data);
+  LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+    LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+    LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+    LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+
+  LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+    LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+    LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+delay(2000);
+  lcd.clear();
+}
